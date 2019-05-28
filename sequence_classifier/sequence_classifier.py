@@ -4,12 +4,16 @@ import random
 import tempfile
 import time
 from typing import List, Tuple, Union
+import warnings
 
 import numpy as np
 from sklearn.base import BaseEstimator, ClassifierMixin
 from sklearn.metrics import f1_score, label_ranking_average_precision_score
 from sklearn.utils.validation import check_is_fitted
 import tensorflow as tf
+
+
+tf.logging.set_verbosity(tf.logging.ERROR)
 
 
 def calculate_overall_lwlrap_sklearn(truth: np.ndarray, scores: np.ndarray) -> float:
@@ -131,15 +135,17 @@ class SequenceClassifier(BaseEstimator, ClassifierMixin):
                     val_loss_value, cur_quality = self.do_validation(validation_data[0], validation_data[1],
                                                                      bounds_of_batches_for_validation, eval_loss)
                     epoch_duration = time.time() - start_time
-                    if self.multioutput:
-                        print('{0:>5}   {1:>10.6f}   {2:>9.6f}   {3:>11.6f}   {4:>15.3f}'.format(
-                            epoch + 1, train_loss_value, val_loss_value, cur_quality, epoch_duration))
-                    else:
-                        print('{0:>5}   {1:>10.6f}   {2:>9.6f}   {3:>8.6f}   {4:>15.3f}'.format(
-                            epoch + 1, train_loss_value, val_loss_value, cur_quality, epoch_duration))
+                    if self.verbose:
+                        if self.multioutput:
+                            print('{0:>5}   {1:>10.6f}   {2:>9.6f}   {3:>11.6f}   {4:>15.3f}'.format(
+                                epoch + 1, train_loss_value, val_loss_value, cur_quality, epoch_duration))
+                        else:
+                            print('{0:>5}   {1:>10.6f}   {2:>9.6f}   {3:>8.6f}   {4:>15.3f}'.format(
+                                epoch + 1, train_loss_value, val_loss_value, cur_quality, epoch_duration))
                 else:
                     epoch_duration = time.time() - start_time
-                    print('{0:>5}   {1:>10.6f}   {2:>15.3f}'.format(epoch + 1, train_loss_value, epoch_duration))
+                    if self.verbose:
+                        print('{0:>5}   {1:>10.6f}   {2:>15.3f}'.format(epoch + 1, train_loss_value, epoch_duration))
                     cur_quality = -train_loss_value
                 if best_quality is None:
                     best_quality = cur_quality
@@ -286,10 +292,12 @@ class SequenceClassifier(BaseEstimator, ClassifierMixin):
         y_true = np.concatenate(y_true, axis=0)
         y_pred = np.concatenate(y_pred, axis=0)
         total_loss /= float(len(batches))
-        if self.multioutput:
-            res = calculate_overall_lwlrap_sklearn(y_true, y_pred)
-        else:
-            res = f1_score(y_true.argmax(axis=1), y_pred.argmax(axis=1), average='macro')
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            if self.multioutput:
+                res = calculate_overall_lwlrap_sklearn(y_true, y_pred)
+            else:
+                res = f1_score(y_true.argmax(axis=1), y_pred.argmax(axis=1), average='macro')
         return total_loss, res
 
     def predict(self, X: Union[list, tuple, np.ndarray]) -> np.ndarray:
@@ -407,10 +415,12 @@ class SequenceClassifier(BaseEstimator, ClassifierMixin):
             for idx in range(batch_start, batch_end):
                 y_pred[idx] = logits[idx - batch_start]
             del X_batch, logits
-        if self.multioutput:
-            quality = calculate_overall_lwlrap_sklearn(y_true, y_pred)
-        else:
-            quality = f1_score(y_true.argmax(axis=1), y_pred.argmax(axis=1), average='macro')
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            if self.multioutput:
+                quality = calculate_overall_lwlrap_sklearn(y_true, y_pred)
+            else:
+                quality = f1_score(y_true.argmax(axis=1), y_pred.argmax(axis=1), average='macro')
         return quality
 
     def is_fitted(self):
@@ -511,7 +521,7 @@ class SequenceClassifier(BaseEstimator, ClassifierMixin):
             loss_tensor = tf.nn.sigmoid_cross_entropy_with_logits(labels=self.y_ph_, logits=self.logits_,
                                                                   name='SigmoidXEntropyLoss')
         else:
-            loss_tensor = tf.nn.softmax_cross_entropy_with_logits_v2(labels=self.y_ph_, logits=self.logits_, axis=-1,
+            loss_tensor = tf.nn.softmax_cross_entropy_with_logits_v2(labels=self.y_ph_, logits=self.logits_,
                                                                      name='SoftmaxXEntropyLoss')
         if self.l2_reg > 0.0:
             base_loss = tf.reduce_mean(loss_tensor)
@@ -537,7 +547,7 @@ class SequenceClassifier(BaseEstimator, ClassifierMixin):
                                                                            name='SigmoidXEntropyEvalLoss')
             else:
                 loss_tensor_eval = tf.nn.softmax_cross_entropy_with_logits_v2(labels=self.y_ph_, logits=self.logits_,
-                                                                              axis=-1, name='SoftmaxXEntropyEvalLoss')
+                                                                              name='SoftmaxXEntropyEvalLoss')
             eval_loss = tf.reduce_mean(loss_tensor_eval)
         return train_op, eval_loss
 

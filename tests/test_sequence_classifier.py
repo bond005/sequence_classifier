@@ -9,6 +9,7 @@ import sys
 import tempfile
 from typing import Dict, Tuple
 import unittest
+import warnings
 import zipfile
 
 from nltk.tokenize.nist import NISTTokenizer
@@ -16,7 +17,6 @@ import numpy as np
 from sklearn.datasets import fetch_20newsgroups
 from sklearn.exceptions import NotFittedError
 from sklearn.model_selection import StratifiedShuffleSplit
-import tensorflow as tf
 
 try:
     from sequence_classifier.sequence_classifier import SequenceClassifier
@@ -1228,5 +1228,4 @@ class TestSequenceClassifier(unittest.TestCase):
 
 
 if __name__ == '__main__':
-    tf.logging.set_verbosity(tf.logging.ERROR)
     unittest.main(verbosity=2)
