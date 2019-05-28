@@ -91,6 +91,9 @@ class SequenceClassifier(BaseEstimator, ClassifierMixin):
                     self.n_classes_, n_classes))
         if self.random_seed is None:
             self.random_seed = int(round(time.time()))
+        tf.set_random_seed(self.random_seed)
+        np.random.seed(self.random_seed)
+        random.seed(self.random_seed)
         self.n_classes_ = n_classes
         if not self.warm_start:
             self.finalize_model()
