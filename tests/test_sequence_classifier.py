@@ -9,7 +9,6 @@ import sys
 import tempfile
 from typing import Dict, Tuple
 import unittest
-import warnings
 import zipfile
 
 from nltk.tokenize.nist import NISTTokenizer

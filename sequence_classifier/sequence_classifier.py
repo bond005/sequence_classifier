@@ -13,7 +13,7 @@ from sklearn.utils.validation import check_is_fitted
 import tensorflow as tf
 
 
-tf.logging.set_verbosity(tf.logging.ERROR)
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 
 def calculate_overall_lwlrap_sklearn(truth: np.ndarray, scores: np.ndarray) -> float:
