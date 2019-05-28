@@ -36,7 +36,9 @@ class WordSequenceClassifier(SequenceClassifier):
 
     def get_data_input(self, X: Union[list, tuple, np.ndarray], idx: int, training_phase: bool) -> np.ndarray:
         res = np.zeros((self.max_seq_length, self.vectors.shape[1]), dtype=np.float32)
-        for token_idx, token_text in filter(lambda it: it in self.dictionary, X[idx]):
+        for token_idx, token_text in enumerate(filter(lambda it: it in self.dictionary, X[idx])):
+            if token_idx >= self.max_seq_length:
+                break
             res[token_idx] = self.vectors[self.dictionary[token_text]]
             if training_phase:
                 noise = np.random.uniform(-1.0, 1.0, size=(self.vectors.shape[1],))
@@ -48,6 +50,19 @@ class WordSequenceClassifier(SequenceClassifier):
                     if vector_norm > 0.0:
                         res[token_idx] /= vector_norm
         return res
+
+    def check_X_item(self, item) -> bool:
+        ok = hasattr(item, '__len__') and hasattr(item, '__getitem__')
+        if not ok:
+            return False
+        try:
+            ok = all(map(
+                lambda token: hasattr(token, '__len__') and hasattr(token, '__getitem__') and hasattr(token, 'split'),
+                item
+            ))
+        except:
+            ok = False
+        return ok
 
 
 def load_trainset(dictionary: Dict[str, int]) -> Tuple[List[tuple], List[Set[int]], List[str]]:
@@ -97,7 +112,7 @@ def load_trainset(dictionary: Dict[str, int]) -> Tuple[List[tuple], List[Set[int
                     )
                     if not all(map(lambda it: it in {'0', '1'}, row[2:])):
                         raise ValueError('File `{0}`, line {1}: all labels must be 0 or 1.'.format(file_name, line_idx))
-                    new_label = set(filter(lambda idx: row[2 + idx] == '1', range(len(classes_list))))
+                    new_label = set(filter(lambda idx: row[2 + idx] == '1', range(len(classes_list) - 1)))
                     if len(new_label) == 0:
                         new_label.add(classes_list.index('normal'))
                     all_labels.append(new_label)
@@ -176,7 +191,7 @@ def load_testset(dictionary: Dict[str, int]) -> Tuple[List[tuple], List[Set[int]
                     if not all(map(lambda it: it in {'0', '1', '-1'}, row[1:])):
                         raise ValueError('File `{0}`, line {1}: all labels must be 0, 1 or -1.'.format(
                             file_name, line_idx))
-                    new_label = set(filter(lambda idx: row[1 + idx] == '1', range(len(classes_list))))
+                    new_label = set(filter(lambda idx: row[1 + idx] == '1', range(len(classes_list) - 1)))
                     if len(new_label) == 0:
                         if '-1' not in row[1:]:
                             new_label.add(classes_list.index('normal'))
@@ -292,7 +307,7 @@ def main():
                                           'testing!'
     train_texts, train_labels, valid_texts, valid_labels = train_test_split(train_texts, train_labels, 0.1, 42)
     lengths_of_texts = sorted([len(cur) for cur in train_texts])
-    max_seq_length = lengths_of_texts[int(round(0.98 * (len(lengths_of_texts) - 1)))]
+    max_seq_length = lengths_of_texts[int(round(0.95 * (len(lengths_of_texts) - 1)))]
     print('Maximal token number in text is {0}.'.format(max_seq_length))
     print('')
     cls = WordSequenceClassifier(
