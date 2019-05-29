@@ -1,1 +1,4 @@
 *.csv
+*.pkl
+*.bin
+*.txt

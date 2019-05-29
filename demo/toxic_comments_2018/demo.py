@@ -3,6 +3,7 @@ import codecs
 import copy
 import csv
 import os
+import pickle
 import random
 import requests
 import sys
@@ -288,6 +289,8 @@ def load_glove() -> Tuple[Dict[str, int], np.ndarray]:
 
 def main():
     parser = ArgumentParser()
+    parser.add_argument('-m', '--model', dest='model_name', type=str, default=None, required=False,
+                        help='File name of neural model.')
     parser.add_argument('--struct', dest='structure_of_layers', type=str, required=False, default='100-50',
                         help='The structure of recurrent layers (hyphenated layer sizes).')
     parser.add_argument('--reg', dest='l2_reg', type=float, required=False, default=1e-6,
@@ -299,26 +302,40 @@ def main():
                         help='Maximal number of training epochs.')
     args = parser.parse_args()
 
+    model_name = args.model_name
+    if model_name is not None:
+        model_name = os.path.normpath(model_name)
     dictionary, vectors = load_glove()
     print('Vocabulary size is {0}.'.format(vectors.shape[0]))
     train_texts, train_labels, train_classes = load_trainset(dictionary)
     test_texts, test_labels, test_classes = load_testset(dictionary)
     assert train_classes == test_classes, 'Set of classes for training does not correspond to set of classes for ' \
                                           'testing!'
-    train_texts, train_labels, valid_texts, valid_labels = train_test_split(train_texts, train_labels, 0.1, 42)
-    lengths_of_texts = sorted([len(cur) for cur in train_texts])
-    max_seq_length = lengths_of_texts[int(round(0.95 * (len(lengths_of_texts) - 1)))]
-    print('Maximal token number in text is {0}.'.format(max_seq_length))
-    print('')
-    cls = WordSequenceClassifier(
-        dictionary=dictionary, vectors=vectors, num_recurrent_units=str_to_layers(args.structure_of_layers),
-        max_seq_length=max_seq_length, batch_size=args.batch_size, learning_rate=args.learning_rate, l2_reg=args.l2_reg,
-        max_epochs=args.max_epochs, patience=5, clipnorm=10.0, gpu_memory_frac=0.9, multioutput=True, warm_start=False,
-        verbose=True, random_seed=42
-    )
-    cls.fit(X=train_texts, y=train_labels, validation_data=(valid_texts, valid_labels))
-    print('')
-    probabilities = cls.predict(test_texts)
+    if (model_name is None) or (not os.path.isfile(model_name)):
+        train_texts, train_labels, valid_texts, valid_labels = train_test_split(train_texts, train_labels, 0.1, 42)
+        lengths_of_texts = sorted([len(cur) for cur in train_texts])
+        max_seq_length = lengths_of_texts[int(round(0.95 * (len(lengths_of_texts) - 1)))]
+        print('Maximal token number in text is {0}.'.format(max_seq_length))
+        print('')
+        cls = WordSequenceClassifier(
+            dictionary=dictionary, vectors=vectors, num_recurrent_units=str_to_layers(args.structure_of_layers),
+            max_seq_length=max_seq_length, batch_size=args.batch_size, learning_rate=args.learning_rate,
+            l2_reg=args.l2_reg,
+            max_epochs=args.max_epochs, patience=5, clipnorm=10.0, gpu_memory_frac=0.9, multioutput=True,
+            warm_start=False,
+            verbose=True, random_seed=42
+        )
+        cls.fit(X=train_texts, y=train_labels, validation_data=(valid_texts, valid_labels))
+        print('')
+        if model_name is not None:
+            with open(model_name, 'wb') as fp:
+                pickle.dump(cls, fp)
+    else:
+        with open(model_name, 'rb') as fp:
+            cls = pickle.load(fp)
+        cls.dictionary = dictionary
+        cls.vectors = vectors
+    probabilities = cls.predict_proba(test_texts)
     y_pred = np.zeros((probabilities.shape[0], probabilities.shape[1] - 1), dtype=np.float64)
     y_true = np.zeros(y_pred.shape, dtype=np.int32)
     for sample_idx in range(len(test_labels)):
