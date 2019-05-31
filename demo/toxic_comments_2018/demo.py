@@ -39,7 +39,7 @@ class WordSequenceClassifier(SequenceClassifier):
         return self.vectors.shape[1] + 6
 
     def get_data_input(self, X: Union[list, tuple, np.ndarray], idx: int, training_phase: bool) -> np.ndarray:
-        res = np.zeros((self.max_seq_length, self.vectors.shape[1]), dtype=np.float32)
+        res = np.zeros((self.max_seq_length, self.vectors.shape[1] + 6), dtype=np.float32)
         for token_idx, token_text in enumerate(filter(lambda it: it in self.dictionary, X[idx])):
             if token_idx >= self.max_seq_length:
                 break
