@@ -6,3 +6,4 @@
 *.pcl
 *.gz
 *.npy
+!toxic_comments_2017*.csv

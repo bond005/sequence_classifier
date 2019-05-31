@@ -1062,6 +1062,59 @@ class TestSequenceClassifier(unittest.TestCase):
         self.assertIsInstance(score, float)
         self.assertAlmostEqual(score, old_score, places=3)
 
+    def test_get_data_target_positive01(self):
+        self.cls = SequenceClassifier(num_recurrent_units=(10, 3), max_seq_length=50)
+        y = np.array([0, 1, 2, 0, 0, 2, 1, 1, 0], dtype=np.int32)
+        self.cls.n_classes_ = 3
+        true_target = np.array([0, 0, 1], dtype=np.float32)
+        real_target = self.cls.get_data_target(y, 2)
+        self.assertIsInstance(real_target, np.ndarray)
+        self.assertEqual(true_target.shape, real_target.shape)
+        self.assertEqual(true_target.tolist(), real_target.tolist())
+
+    def test_get_data_target_positive02(self):
+        self.cls = SequenceClassifier(num_recurrent_units=(10, 3), max_seq_length=50)
+        y = [{0}, {1}, {2}, {0}, {0}, {0, 2}, {1}, {1}, {0}]
+        self.cls.n_classes_ = 3
+        true_target = np.array([1, 0, 1], dtype=np.float32)
+        real_target = self.cls.get_data_target(y, 5)
+        self.assertIsInstance(real_target, np.ndarray)
+        self.assertEqual(true_target.shape, real_target.shape)
+        self.assertEqual(true_target.tolist(), real_target.tolist())
+
+    def test_get_data_target_positive03(self):
+        self.cls = SequenceClassifier(num_recurrent_units=(10, 3), max_seq_length=50)
+        y = [{0}, {1}, {2}, {0}, {0}, {0, 2}, {1}, {1}, set()]
+        self.cls.n_classes_ = 3
+        true_target = np.array([0, 0, 0], dtype=np.float32)
+        real_target = self.cls.get_data_target(y, 8)
+        self.assertIsInstance(real_target, np.ndarray)
+        self.assertEqual(true_target.shape, real_target.shape)
+        self.assertEqual(true_target.tolist(), real_target.tolist())
+
+    def test_get_data_target_positive04(self):
+        self.cls = SequenceClassifier(num_recurrent_units=(10, 3), max_seq_length=50)
+        y = np.array(
+            [
+                [1, 0, 0],
+                [0, 1, 0],
+                [0, 0, 1],
+                [1, 0, 0],
+                [1, 0, 0],
+                [1, 0, 1],
+                [0, 1, 0],
+                [0, 1, 0],
+                [0, 0, 0]
+            ],
+            dtype=np.float32
+        )
+        self.cls.n_classes_ = 3
+        true_target = np.array([1, 0, 0], dtype=np.float32)
+        real_target = self.cls.get_data_target(y, 3)
+        self.assertIsInstance(real_target, np.ndarray)
+        self.assertEqual(true_target.shape, real_target.shape)
+        self.assertEqual(true_target.tolist(), real_target.tolist())
+
     @classmethod
     def load_data(cls):
         X_train_name = os.path.join(os.path.dirname(__file__), 'testdata', 'X_train.npy')
