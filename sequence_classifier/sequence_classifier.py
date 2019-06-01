@@ -533,8 +533,7 @@ class SequenceClassifier(BaseEstimator, ClassifierMixin):
         else:
             final_loss = tf.reduce_mean(loss_tensor)
         with tf.name_scope('train'):
-            optimizer = tf.train.RMSPropOptimizer(learning_rate=self.learning_rate, momentum=0.9, decay=0.99,
-                                                  epsilon=1e-10)
+            optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate, beta1=0.9, beta2=0.999, epsilon=1e-8)
             grads_and_vars = optimizer.compute_gradients(final_loss)
             capped_gvs = [
                 (grad, var) if grad is None else (

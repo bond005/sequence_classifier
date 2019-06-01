@@ -133,8 +133,6 @@ def main():
                         help='The structure of recurrent layers (hyphenated layer sizes).')
     parser.add_argument('--reg', dest='l2_reg', type=float, required=False, default=1e-6,
                         help='L2 regularization coefficient for output layer.')
-    parser.add_argument('--lr', dest='learning_rate', type=float, required=False, default=1e-3,
-                        help='The learning rate parameter.')
     parser.add_argument('--batch', dest='batch_size', type=int, required=False, default=16, help='Size of mini-batch.')
     parser.add_argument('--max', dest='max_epochs', type=int, required=False, default=1000,
                         help='Maximal number of training epochs.')
@@ -171,9 +169,9 @@ def main():
         print('')
         cls = WordSequenceClassifier(
             dictionary=dictionary, vectors=vectors, num_recurrent_units=str_to_layers(args.structure_of_layers),
-            max_seq_length=max_seq_length, batch_size=args.batch_size, learning_rate=args.learning_rate,
-            l2_reg=args.l2_reg, max_epochs=args.max_epochs, patience=args.patience, clipnorm=10.0, gpu_memory_frac=0.9,
-            multioutput=True, warm_start=False, verbose=True, random_seed=42
+            max_seq_length=max_seq_length, batch_size=args.batch_size, learning_rate=1e-3, l2_reg=args.l2_reg,
+            max_epochs=args.max_epochs, patience=args.patience, clipnorm=10.0, gpu_memory_frac=0.9, multioutput=True,
+            warm_start=False, verbose=True, random_seed=42
         )
         cls.fit(X=train_texts, y=train_labels, validation_data=(valid_texts, valid_labels))
         print('')
