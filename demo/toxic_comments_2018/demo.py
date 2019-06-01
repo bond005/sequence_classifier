@@ -138,6 +138,8 @@ def main():
     parser.add_argument('--batch', dest='batch_size', type=int, required=False, default=16, help='Size of mini-batch.')
     parser.add_argument('--max', dest='max_epochs', type=int, required=False, default=1000,
                         help='Maximal number of training epochs.')
+    parser.add_argument('--pat', dest='patience', type=int, required=False, default=15,
+                        help='Patience (number of epochs for early stopping).')
     args = parser.parse_args()
 
     model_name = args.model_name
@@ -170,10 +172,8 @@ def main():
         cls = WordSequenceClassifier(
             dictionary=dictionary, vectors=vectors, num_recurrent_units=str_to_layers(args.structure_of_layers),
             max_seq_length=max_seq_length, batch_size=args.batch_size, learning_rate=args.learning_rate,
-            l2_reg=args.l2_reg,
-            max_epochs=args.max_epochs, patience=5, clipnorm=10.0, gpu_memory_frac=0.9, multioutput=True,
-            warm_start=False,
-            verbose=True, random_seed=42
+            l2_reg=args.l2_reg, max_epochs=args.max_epochs, patience=args.patience, clipnorm=10.0, gpu_memory_frac=0.9,
+            multioutput=True, warm_start=False, verbose=True, random_seed=42
         )
         cls.fit(X=train_texts, y=train_labels, validation_data=(valid_texts, valid_labels))
         print('')
