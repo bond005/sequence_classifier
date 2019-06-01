@@ -198,7 +198,7 @@ def main():
         for class_idx in test_labels[sample_idx]:
             y_true[sample_idx][class_idx] = 1
     roc_auc = [roc_auc_score(y_true[:, class_idx], probabilities[:, class_idx])
-               for class_idx in range(len(test_classes) - 1)]
+               for class_idx in range(len(test_classes))]
     print('Mean ROC-AUC score is {0:.9f}.'.format(np.mean(roc_auc)))
     print('By classes:')
     for class_idx in range(len(roc_auc)):
