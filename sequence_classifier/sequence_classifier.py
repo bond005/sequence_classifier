@@ -1,4 +1,5 @@
 import copy
+from itertools import cycle
 import os
 import random
 import tempfile
@@ -102,26 +103,16 @@ class SequenceClassifier(BaseEstimator, ClassifierMixin):
                         (tuple(self.num_recurrent_units.tolist()) if isinstance(self.num_recurrent_units, np.ndarray)
                          else tuple(self.num_recurrent_units)))
         train_op, eval_loss = self.build_model(self.input_shape_, self.n_classes_)
-        n_train_batches = int(np.ceil(len(y) / float(self.batch_size)))
-        bounds_of_batches_for_training = []
-        for iteration in range(n_train_batches):
-            batch_start = iteration * self.batch_size
-            batch_end = min(batch_start + self.batch_size, len(y))
-            bounds_of_batches_for_training.append((batch_start, batch_end))
-        bounds_of_batches_for_validation = []
+        bounds_of_batches_for_training = self.generate_bounds_of_batches(len(y))
         if validation_data is None:
-            n_val_batches = 0
+            bounds_of_batches_for_validation = []
         else:
-            n_val_batches = int(np.ceil(len(validation_data[1]) / float(self.batch_size)))
-            for iteration in range(n_val_batches):
-                batch_start = iteration * self.batch_size
-                batch_end = min(batch_start + self.batch_size, len(validation_data[1]))
-                bounds_of_batches_for_validation.append((batch_start, batch_end))
+            bounds_of_batches_for_validation = self.generate_bounds_of_batches(len(validation_data[1]))
         init = tf.global_variables_initializer()
         init.run(session=self.sess_)
         tmp_model_name = self.get_temp_model_name()
         if self.verbose:
-            if n_val_batches > 0:
+            if len(bounds_of_batches_for_validation) > 0:
                 if self.multioutput:
                     print('Epoch   Train loss   Val. loss   Val. LwLRAP   Duration (secs)')
                 else:
@@ -134,7 +125,7 @@ class SequenceClassifier(BaseEstimator, ClassifierMixin):
             for epoch in range(self.max_epochs):
                 start_time = time.time()
                 train_loss_value = self.do_training_epoch(X, y, bounds_of_batches_for_training, train_op, eval_loss)
-                if n_val_batches > 0:
+                if len(bounds_of_batches_for_validation) > 0:
                     val_loss_value, cur_quality = self.do_validation(validation_data[0], validation_data[1],
                                                                      bounds_of_batches_for_validation, eval_loss)
                     epoch_duration = time.time() - start_time
@@ -179,119 +170,96 @@ class SequenceClassifier(BaseEstimator, ClassifierMixin):
                 os.remove(cur_name)
         return self
 
+    def generate_bounds_of_batches(self, data_size: int) -> List[Tuple[int, int]]:
+        n_batches = int(np.ceil(data_size / float(self.batch_size)))
+        bounds_of_batches = []
+        for iteration in range(n_batches):
+            batch_start = iteration * self.batch_size
+            batch_end = min(batch_start + self.batch_size, data_size)
+            bounds_of_batches.append((batch_start, batch_end))
+        return bounds_of_batches
+
+    def generate_new_batch(self, batch_start: int, batch_end: int, X: Union[list, tuple, np.ndarray],
+                           y: Union[list, tuple, np.ndarray]=None,
+                           shuffle: bool=False) -> Union[np.ndarray, Tuple[np.ndarray, np.ndarray]]:
+        X_batch = []
+        y_batch = []
+        for idx in range(batch_start, batch_end):
+            X_inst = self.get_data_input(X, idx, True)
+            if y is None:
+                y_inst = None
+            else:
+                y_inst = self.get_data_target(y, idx)
+            if not isinstance(X_inst, np.ndarray):
+                raise ValueError('Training sample {0} is wrong! Expected `{1}`, got `{2}`.'.format(
+                    batch_start + idx, type(np.array([1, 2])), type(X_inst)))
+            if X_inst.shape[1] != self.input_shape_[1]:
+                raise ValueError('Feature size of training sample {0} is wrong! Expected {1}, got '
+                                 '{2}.'.format(batch_start + idx, self.input_shape_[1], X_inst.shape[1]))
+            if X_inst.shape[0] == self.input_shape_[0]:
+                X_batch.append(X_inst)
+            elif X_inst.shape[0] > self.input_shape_[0]:
+                X_batch.append((X_inst[0:self.input_shape_[0]]))
+            else:
+                X_batch.append(
+                    np.vstack(
+                        (
+                            X_inst,
+                            np.zeros((self.input_shape_[0] - X_inst.shape[0], X_inst.shape[1]),
+                                     dtype=X_inst.dtype)
+                        )
+                    )
+                )
+            if y_inst is not None:
+                y_batch.append(y_inst)
+                del y_inst
+            del X_inst
+        X_batch = np.concatenate([np.reshape(cur, (1, cur.shape[0], cur.shape[1])) for cur in X_batch], axis=0)
+        if len(y_batch) > 0:
+            y_batch = np.concatenate([np.reshape(cur, (1, cur.shape[0])) for cur in y_batch], axis=0)
+        if X_batch.shape[0] < self.batch_size:
+            idx = list(range(X_batch.shape[0]))
+            for new_idx in cycle(list(range(X_batch.shape[0]))):
+                if len(idx) == self.batch_size:
+                    break
+                idx.append(new_idx)
+            X_batch = np.concatenate((X_batch, X_batch[idx]), axis=0)
+            if len(y_batch) > 0:
+                y_batch = np.concatenate((y_batch, y_batch[idx]), axis=0)
+            del idx
+        indices_in_batch = np.arange(0, self.batch_size, 1, dtype=np.int32)
+        if shuffle:
+            np.random.shuffle(indices_in_batch)
+        if len(y_batch) > 0:
+            return X_batch[indices_in_batch], y_batch[indices_in_batch]
+        return X_batch[indices_in_batch]
+
     def do_training_epoch(self, X: Union[list, tuple, np.ndarray], y: Union[list, tuple, np.ndarray],
                           batches: List[Tuple[int, int]], train_op, eval_loss) -> float:
-        indices_in_batch = np.arange(0, self.batch_size, 1, dtype=np.int32)
         random.shuffle(batches)
         feed_dict_for_batch = None
         for batch_start, batch_end in batches:
-            X_batch = []
-            y_batch = []
-            for idx in range(batch_start, batch_end):
-                X_inst = self.get_data_input(X, idx, True)
-                y_inst = self.get_data_target(y, idx)
-                if not isinstance(X_inst, np.ndarray):
-                    raise ValueError('Training sample {0} is wrong! Expected `{1}`, got `{2}`.'.format(
-                        batch_start + idx, type(np.array([1, 2])), type(X_inst)))
-                if X_inst.shape[1] != self.input_shape_[1]:
-                    raise ValueError('Feature size of training sample {0} is wrong! Expected {1}, got '
-                                     '{2}.'.format(batch_start + idx, self.input_shape_[1], X_inst.shape[1]))
-                if X_inst.shape[0] == self.input_shape_[0]:
-                    X_batch.append(X_inst)
-                elif X_inst.shape[0] > self.input_shape_[0]:
-                    X_batch.append((X_inst[0:self.input_shape_[0]]))
-                else:
-                    X_batch.append(
-                        np.vstack(
-                            (
-                                X_inst,
-                                np.zeros((self.input_shape_[0] - X_inst.shape[0], X_inst.shape[1]),
-                                         dtype=X_inst.dtype)
-                            )
-                        )
-                    )
-                y_batch.append(y_inst)
-                del X_inst, y_inst
-            X_batch = np.concatenate([np.reshape(cur, (1, cur.shape[0], cur.shape[1])) for cur in X_batch], axis=0)
-            y_batch = np.concatenate([np.reshape(cur, (1, cur.shape[0])) for cur in y_batch], axis=0)
+            X_batch, y_batch = self.generate_new_batch(batch_start, batch_end, X, y, True)
             if feed_dict_for_batch is not None:
                 del feed_dict_for_batch
-            if X_batch.shape[0] < self.batch_size:
-                if X_batch.shape[0] < (self.batch_size - X_batch.shape[0]):
-                    idx = list(range(X_batch.shape[0]))
-                    n = X_batch.shape[0] * 2
-                    while n <= (self.batch_size - X_batch.shape[0]):
-                        idx += list(range(X_batch.shape[0]))
-                        n += X_batch.shape[0]
-                    idx += random.sample(list(range(X_batch.shape[0])), self.batch_size - n)
-                else:
-                    idx = random.sample(list(range(X_batch.shape[0])), self.batch_size - X_batch.shape[0])
-                X_batch = np.concatenate((X_batch, X_batch[idx]), axis=0)
-                y_batch = np.concatenate((y_batch, y_batch[idx]), axis=0)
-                del idx
-            np.random.shuffle(indices_in_batch)
-            feed_dict_for_batch = self.fill_feed_dict(X_batch[indices_in_batch], y_batch[indices_in_batch])
+            feed_dict_for_batch = self.fill_feed_dict(X_batch, y_batch)
             self.sess_.run(train_op, feed_dict=feed_dict_for_batch)
             del X_batch, y_batch
-        del indices_in_batch
         return eval_loss.eval(feed_dict=feed_dict_for_batch, session=self.sess_)
 
     def do_validation(self, X: Union[list, tuple, np.ndarray], y: Union[list, tuple, np.ndarray],
                       batches: List[Tuple[int, int]], eval_loss) -> Tuple[float, float]:
         y_true = []
         y_pred = []
-        feed_dict_for_batch = None
         total_loss = 0.0
         for batch_start, batch_end in batches:
-            X_batch = []
-            y_batch = []
-            for idx in range(batch_start, batch_end):
-                X_inst = self.get_data_input(X, idx, False)
-                y_inst = self.get_data_target(y, idx)
-                if not isinstance(X_inst, np.ndarray):
-                    raise ValueError('Validation sample {0} is wrong! Expected `{1}`, got `{2}`.'.format(
-                        batch_start + idx, type(np.array([1, 2])), type(X_inst)))
-                if X_inst.shape[1] != self.input_shape_[1]:
-                    raise ValueError('Feature size of validation sample {0} is wrong! Expected {1}, got '
-                                     '{2}.'.format(batch_start + idx, self.input_shape_[1],
-                                                   X_inst.shape[1]))
-                if X_inst.shape[0] == self.input_shape_[0]:
-                    X_batch.append(X_inst)
-                elif X_inst.shape[0] > self.input_shape_[0]:
-                    X_batch.append((X_inst[0:self.input_shape_[0]]))
-                else:
-                    X_batch.append(
-                        np.vstack(
-                            (
-                                X_inst,
-                                np.zeros((self.input_shape_[0] - X_inst.shape[0], X_inst.shape[1]),
-                                         dtype=X_inst.dtype)
-                            )
-                        )
-                    )
-                y_batch.append(y_inst)
-                del X_inst, y_inst
-            X_batch = np.concatenate([np.reshape(cur, (1, cur.shape[0], cur.shape[1])) for cur in X_batch], axis=0)
-            y_batch = np.concatenate([np.reshape(cur, (1, cur.shape[0])) for cur in y_batch], axis=0)
-            if feed_dict_for_batch is not None:
-                del feed_dict_for_batch
-            if X_batch.shape[0] < self.batch_size:
-                idx = [(X_batch.shape[0] - 1) for _ in range(self.batch_size - X_batch.shape[0])]
-                X_batch = np.concatenate((X_batch, X_batch[idx]), axis=0)
-                y_batch = np.concatenate((y_batch, y_batch[idx]), axis=0)
-                feed_dict_for_batch = self.fill_feed_dict(X_batch, y_batch)
-                val_loss_batch, logits = self.sess_.run(
-                    [eval_loss, self.logits_], feed_dict=feed_dict_for_batch
-                )
-                y_true.append(y_batch[:(batch_end - batch_start)])
-                del idx
-            else:
-                feed_dict_for_batch = self.fill_feed_dict(X_batch, y_batch)
-                val_loss_batch, logits = self.sess_.run([eval_loss, self.logits_], feed_dict=feed_dict_for_batch)
-                y_true.append(y_batch)
+            X_batch, y_batch = self.generate_new_batch(batch_start, batch_end, X, y, False)
+            feed_dict_for_batch = self.fill_feed_dict(X_batch, y_batch)
+            val_loss_batch, logits = self.sess_.run([eval_loss, self.logits_], feed_dict=feed_dict_for_batch)
+            y_true.append(y_batch[:(batch_end - batch_start)])
             y_pred.append(logits[:(batch_end - batch_start)])
             total_loss += val_loss_batch
-            del X_batch, y_batch, logits
+            del X_batch, y_batch, logits, feed_dict_for_batch
         y_true = np.concatenate(y_true, axis=0)
         y_pred = np.concatenate(y_pred, axis=0)
         total_loss /= float(len(batches))
@@ -310,52 +278,14 @@ class SequenceClassifier(BaseEstimator, ClassifierMixin):
         self.is_fitted()
         n_samples = self.check_X(X, 'X')
         res = np.zeros((n_samples, self.n_classes_), dtype=np.float32)
-        n_batches = int(np.ceil(n_samples / float(self.batch_size)))
-        feed_dict_for_batch = None
-        for iteration in range(n_batches):
-            batch_start = iteration * self.batch_size
-            batch_end = min(batch_start + self.batch_size, n_samples)
-            X_batch = []
-            for idx in range(batch_start, batch_end):
-                X_inst = self.get_data_input(X, idx, False)
-                if not isinstance(X_inst, np.ndarray):
-                    raise ValueError('Validation sample {0} is wrong! Expected `{1}`, got `{2}`.'.format(
-                        batch_start + idx, type(np.array([1, 2])), type(X_inst)))
-                if X_inst.shape[1] != self.input_shape_[1]:
-                    raise ValueError('Feature size of validation sample {0} is wrong! Expected {1}, got '
-                                     '{2}.'.format(batch_start + idx, self.input_shape_[1],
-                                                   X_inst.shape[1]))
-                if X_inst.shape[0] == self.input_shape_[0]:
-                    X_batch.append(X_inst)
-                elif X_inst.shape[0] > self.input_shape_[0]:
-                    X_batch.append((X_inst[0:self.input_shape_[0]]))
-                else:
-                    X_batch.append(
-                        np.vstack(
-                            (
-                                X_inst,
-                                np.zeros((self.input_shape_[0] - X_inst.shape[0], X_inst.shape[1]),
-                                         dtype=X_inst.dtype)
-                            )
-                        )
-                    )
-                del X_inst
-            X_batch = np.concatenate([np.reshape(cur, (1, cur.shape[0], cur.shape[1])) for cur in X_batch], axis=0)
-            if feed_dict_for_batch is not None:
-                del feed_dict_for_batch
-            if X_batch.shape[0] < self.batch_size:
-                idx = [(X_batch.shape[0] - 1) for _ in range(self.batch_size - X_batch.shape[0])]
-                X_batch = np.concatenate((X_batch, X_batch[idx]), axis=0)
-                feed_dict_for_batch = self.fill_feed_dict(X_batch)
-                logits = self.logits_.eval(feed_dict=feed_dict_for_batch,
-                                           session=self.sess_)[:(batch_end - batch_start)]
-                del idx
-            else:
-                feed_dict_for_batch = self.fill_feed_dict(X_batch)
-                logits = self.logits_.eval(feed_dict=feed_dict_for_batch, session=self.sess_)
+        bounds_of_batches = self.generate_bounds_of_batches(n_samples)
+        for batch_start, batch_end in bounds_of_batches:
+            X_batch = self.generate_new_batch(batch_start, batch_end, X)
+            feed_dict_for_batch = self.fill_feed_dict(X_batch)
+            logits = self.logits_.eval(feed_dict=feed_dict_for_batch, session=self.sess_)
             for idx in range(batch_start, batch_end):
                 res[idx] = logits[idx - batch_start]
-            del X_batch, logits
+            del X_batch, logits, feed_dict_for_batch
         return res
 
     def predict_log_proba(self, X: Union[list, tuple, np.ndarray]) -> np.ndarray:
@@ -370,54 +300,14 @@ class SequenceClassifier(BaseEstimator, ClassifierMixin):
         n_samples = self.check_X(X, 'X')
         y_true = np.zeros((n_samples, self.n_classes_), dtype=np.float32)
         y_pred = np.zeros((n_samples, self.n_classes_), dtype=np.float32)
-        n_batches = int(np.ceil(n_samples / float(self.batch_size)))
-        feed_dict_for_batch = None
-        for iteration in range(n_batches):
-            batch_start = iteration * self.batch_size
-            batch_end = min(batch_start + self.batch_size, n_samples)
-            X_batch = []
-            for idx in range(batch_start, batch_end):
-                X_inst = self.get_data_input(X, idx, False)
-                y_inst = self.get_data_target(y, idx)
-                if not isinstance(X_inst, np.ndarray):
-                    raise ValueError('Validation sample {0} is wrong! Expected `{1}`, got `{2}`.'.format(
-                        batch_start + idx, type(np.array([1, 2])), type(X_inst)))
-                if X_inst.shape[1] != self.input_shape_[1]:
-                    raise ValueError('Feature size of validation sample {0} is wrong! Expected {1}, got '
-                                     '{2}.'.format(batch_start + idx, self.input_shape_[1],
-                                                   X_inst.shape[1]))
-                if X_inst.shape[0] == self.input_shape_[0]:
-                    X_batch.append(X_inst)
-                elif X_inst.shape[0] > self.input_shape_[0]:
-                    X_batch.append((X_inst[0:self.input_shape_[0]]))
-                else:
-                    X_batch.append(
-                        np.vstack(
-                            (
-                                X_inst,
-                                np.zeros((self.input_shape_[0] - X_inst.shape[0], X_inst.shape[1]),
-                                         dtype=X_inst.dtype)
-                            )
-                        )
-                    )
-                y_true[idx] = y_inst
-                del X_inst, y_inst
-            X_batch = np.concatenate([np.reshape(cur, (1, cur.shape[0], cur.shape[1])) for cur in X_batch], axis=0)
-            if feed_dict_for_batch is not None:
-                del feed_dict_for_batch
-            if X_batch.shape[0] < self.batch_size:
-                idx = [(X_batch.shape[0] - 1) for _ in range(self.batch_size - X_batch.shape[0])]
-                X_batch = np.concatenate((X_batch, X_batch[idx]), axis=0)
-                feed_dict_for_batch = self.fill_feed_dict(X_batch)
-                logits = self.logits_.eval(feed_dict=feed_dict_for_batch,
-                                           session=self.sess_)[:(batch_end - batch_start)]
-                del idx
-            else:
-                feed_dict_for_batch = self.fill_feed_dict(X_batch)
-                logits = self.logits_.eval(feed_dict=feed_dict_for_batch, session=self.sess_)
+        bounds_of_batches = self.generate_bounds_of_batches(n_samples)
+        for batch_start, batch_end in bounds_of_batches:
+            X_batch = self.generate_new_batch(batch_start, batch_end, X)
+            feed_dict_for_batch = self.fill_feed_dict(X_batch)
+            logits = self.logits_.eval(feed_dict=feed_dict_for_batch, session=self.sess_)
             for idx in range(batch_start, batch_end):
                 y_pred[idx] = logits[idx - batch_start]
-            del X_batch, logits
+            del X_batch, logits, feed_dict_for_batch
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             if self.multioutput:
@@ -527,11 +417,13 @@ class SequenceClassifier(BaseEstimator, ClassifierMixin):
             loss_tensor = tf.nn.softmax_cross_entropy_with_logits_v2(labels=self.y_ph_, logits=self.logits_,
                                                                      name='SoftmaxXEntropyLoss')
         if self.l2_reg > 0.0:
-            base_loss = tf.reduce_mean(loss_tensor)
-            regularization_loss = self.l2_reg * tf.reduce_sum(tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES))
-            final_loss = base_loss + regularization_loss
+            with tf.name_scope('FinalLoss'):
+                base_loss = tf.reduce_mean(loss_tensor)
+                regularization_loss = self.l2_reg * tf.reduce_sum(tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES))
+                final_loss = base_loss + regularization_loss
         else:
-            final_loss = tf.reduce_mean(loss_tensor)
+            with tf.name_scope('FinalLoss'):
+                final_loss = tf.reduce_mean(loss_tensor)
         with tf.name_scope('train'):
             optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate, beta1=0.9, beta2=0.999, epsilon=1e-8)
             grads_and_vars = optimizer.compute_gradients(final_loss)

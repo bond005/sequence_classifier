@@ -1115,6 +1115,170 @@ class TestSequenceClassifier(unittest.TestCase):
         self.assertEqual(true_target.shape, real_target.shape)
         self.assertEqual(true_target.tolist(), real_target.tolist())
 
+    def test_generate_bounds_of_batches_positive01(self):
+        self.cls = SequenceClassifier(num_recurrent_units=(10, 3), max_seq_length=50, batch_size=4)
+        data_size = 16
+        true_bounds_of_batches = [(0, 4), (4, 8), (8, 12), (12, 16)]
+        calc_bounds_of_batches = self.cls.generate_bounds_of_batches(data_size)
+        self.assertEqual(true_bounds_of_batches, calc_bounds_of_batches)
+
+    def test_generate_bounds_of_batches_positive02(self):
+        self.cls = SequenceClassifier(num_recurrent_units=(10, 3), max_seq_length=50, batch_size=4)
+        data_size = 13
+        true_bounds_of_batches = [(0, 4), (4, 8), (8, 12), (12, 13)]
+        calc_bounds_of_batches = self.cls.generate_bounds_of_batches(data_size)
+        self.assertEqual(true_bounds_of_batches, calc_bounds_of_batches)
+
+    def test_generate_new_batch_positive01(self):
+        X = np.vstack(
+            (
+                np.random.uniform(0.0, 1.0, (3, 7)),  # 0 3
+                np.random.uniform(-1.5, 0.5, (4, 7)),  # 3 7
+                np.random.uniform(1.0, 2.3, (5, 7)),  # 7 12
+                np.random.uniform(2.5, 3.7, (1, 7))  # 12 13
+            )
+        )
+        y = np.concatenate(
+            (
+                np.full((3,), 1, dtype=np.int32),  # 0 3
+                np.full((4,), 0, dtype=np.int32),  # 3 7
+                np.full((5,), 2, dtype=np.int32),  # 7 12
+                np.full((1,), 3, dtype=np.int32),  # 12 13
+            )
+        )
+        self.cls = SequenceClassifier(num_recurrent_units=(10, 3), max_seq_length=50, batch_size=4)
+        true_batch = (X[4:8], y[4:8])
+        calculated_batch = self.cls.generate_new_batch(4, 8, X, y, False)
+        self.assertIsInstance(calculated_batch, tuple)
+        self.assertEqual(len(calculated_batch), 2)
+        self.assertIsInstance(calculated_batch[0], np.ndarray)
+        self.assertIsInstance(calculated_batch[1], np.ndarray)
+        self.assertEqual(calculated_batch[0].shape, true_batch[0].shape)
+        self.assertEqual(calculated_batch[1].shape, true_batch[1].shape)
+        self.assertEqual(calculated_batch[1].tolist(), true_batch[1].tolist())
+        for row_idx in range(true_batch[0].shape[0]):
+            for col_idx in range(true_batch[0].shape[1]):
+                self.assertAlmostEqual(calculated_batch[0][row_idx][col_idx], true_batch[0][row_idx][col_idx], places=5,
+                                       msg='Row {0}, column {1}.'.format(row_idx, col_idx))
+
+    def test_generate_new_batch_positive02(self):
+        X = np.vstack(
+            (
+                np.random.uniform(0.0, 1.0, (3, 7)),  # 0 3
+                np.random.uniform(-1.5, 0.5, (4, 7)),  # 3 7
+                np.random.uniform(1.0, 2.3, (5, 7)),  # 7 12
+                np.random.uniform(2.5, 3.7, (1, 7))  # 12 13
+            )
+        )
+        y = np.concatenate(
+            (
+                np.full((3,), 1, dtype=np.int32),  # 0 3
+                np.full((4,), 0, dtype=np.int32),  # 3 7
+                np.full((5,), 2, dtype=np.int32),  # 7 12
+                np.full((1,), 3, dtype=np.int32),  # 12 13
+            )
+        )
+        self.cls = SequenceClassifier(num_recurrent_units=(10, 3), max_seq_length=50, batch_size=4)
+        true_batch = (
+            np.vstack((X[12:13], X[12:13], X[12:13], X[12:13])),
+            np.concatenate((y[12:13], y[12:13], y[12:13], y[12:13]))
+        )
+        calculated_batch = self.cls.generate_new_batch(12, 13, X, y, False)
+        self.assertIsInstance(calculated_batch, tuple)
+        self.assertEqual(len(calculated_batch), 2)
+        self.assertIsInstance(calculated_batch[0], np.ndarray)
+        self.assertIsInstance(calculated_batch[1], np.ndarray)
+        self.assertEqual(calculated_batch[0].shape, true_batch[0].shape)
+        self.assertEqual(calculated_batch[1].shape, true_batch[1].shape)
+        self.assertEqual(calculated_batch[1].tolist(), true_batch[1].tolist())
+        for row_idx in range(true_batch[0].shape[0]):
+            for col_idx in range(true_batch[0].shape[1]):
+                self.assertAlmostEqual(calculated_batch[0][row_idx][col_idx], true_batch[0][row_idx][col_idx], places=5,
+                                       msg='Row {0}, column {1}.'.format(row_idx, col_idx))
+
+    def test_generate_new_batch_positive03(self):
+        X = np.vstack(
+            (
+                np.random.uniform(0.0, 1.0, (3, 7)),  # 0 3
+                np.random.uniform(-1.5, 0.5, (4, 7)),  # 3 7
+                np.random.uniform(1.0, 2.3, (5, 7)),  # 7 12
+                np.random.uniform(2.5, 3.7, (1, 7))  # 12 13
+            )
+        )
+        self.cls = SequenceClassifier(num_recurrent_units=(10, 3), max_seq_length=50, batch_size=4)
+        true_batch = X[4:8]
+        calculated_batch = self.cls.generate_new_batch(4, 8, X, shuffle=False)
+        self.assertIsInstance(calculated_batch, np.ndarray)
+        self.assertEqual(calculated_batch.shape, true_batch.shape)
+        for row_idx in range(true_batch.shape[0]):
+            for col_idx in range(true_batch.shape[1]):
+                self.assertAlmostEqual(calculated_batch[row_idx][col_idx], true_batch[row_idx][col_idx], places=5,
+                                       msg='Row {0}, column {1}.'.format(row_idx, col_idx))
+
+    def test_generate_new_batch_positive04(self):
+        X = np.vstack(
+            (
+                np.random.uniform(0.0, 1.0, (3, 7)),  # 0 3
+                np.random.uniform(-1.5, 0.5, (4, 7)),  # 3 7
+                np.random.uniform(1.0, 2.3, (5, 7)),  # 7 12
+                np.random.uniform(2.5, 3.7, (1, 7))  # 12 13
+            )
+        )
+        self.cls = SequenceClassifier(num_recurrent_units=(10, 3), max_seq_length=50, batch_size=4)
+        true_batch = np.vstack((X[12:13], X[12:13], X[12:13], X[12:13]))
+        calculated_batch = self.cls.generate_new_batch(12, 13, X, shuffle=False)
+        self.assertIsInstance(calculated_batch, np.ndarray)
+        self.assertEqual(calculated_batch.shape, true_batch.shape)
+        for row_idx in range(true_batch.shape[0]):
+            for col_idx in range(true_batch.shape[1]):
+                self.assertAlmostEqual(calculated_batch[row_idx][col_idx], true_batch[row_idx][col_idx], places=5,
+                                       msg='Row {0}, column {1}.'.format(row_idx, col_idx))
+
+    def test_generate_new_batch_positive05(self):
+        X = np.vstack(
+            (
+                np.random.uniform(0.0, 1.0, (3, 7)),  # 0 3
+                np.random.uniform(-1.5, 0.5, (4, 7)),  # 3 7
+                np.random.uniform(1.0, 2.3, (5, 7)),  # 7 12
+                np.random.uniform(2.5, 3.7, (1, 7))  # 12 13
+            )
+        )
+        y = np.concatenate(
+            (
+                np.full((3,), 1, dtype=np.int32),  # 0 3
+                np.full((4,), 0, dtype=np.int32),  # 3 7
+                np.full((5,), 2, dtype=np.int32),  # 7 12
+                np.full((1,), 3, dtype=np.int32),  # 12 13
+            )
+        )
+        self.cls = SequenceClassifier(num_recurrent_units=(10, 3), max_seq_length=50, batch_size=4)
+        true_batch = (X[4:8], y[4:8])
+        calculated_batch = self.cls.generate_new_batch(4, 8, X, y, True)
+        self.assertIsInstance(calculated_batch, tuple)
+        self.assertEqual(len(calculated_batch), 2)
+        self.assertIsInstance(calculated_batch[0], np.ndarray)
+        self.assertIsInstance(calculated_batch[1], np.ndarray)
+        self.assertEqual(calculated_batch[0].shape, true_batch[0].shape)
+        self.assertEqual(calculated_batch[1].shape, true_batch[1].shape)
+        self.assertEqual(calculated_batch[1].tolist(), true_batch[1].tolist())
+        indices = []
+        for row_idx_1 in range(true_batch[0].shape[0]):
+            for row_idx_2 in range(true_batch[0].shape[0]):
+                is_equal = True
+                for col_idx in range(true_batch[0].shape[1]):
+                    if abs(calculated_batch[0][row_idx_1][col_idx] - true_batch[0][row_idx_2][col_idx]) > 1e-5:
+                        is_equal = False
+                        break
+                if is_equal:
+                    indices.append(row_idx_2)
+                    break
+        self.assertEqual(len(indices), true_batch[0].shape[0])
+        self.assertEqual(len(indices), len(set(indices)))
+        for idx, val in enumerate(indices):
+            self.assertGreaterEqual(val, 0)
+            self.assertLess(val, 4)
+            self.assertEqual(calculated_batch[1][val], true_batch[1][idx])
+
     @classmethod
     def load_data(cls):
         X_train_name = os.path.join(os.path.dirname(__file__), 'testdata', 'X_train.npy')
